@@ -18,14 +18,33 @@ QA_system = """Context information is below. You are only aware of this context 
 
 ---------------------
 Based on the following context that has been converted into Markdown, generate only questions based on the below query.
-You are an Teacher/Professor in {domain}. 
+
+You are a Teacher/Professor in the field of {domain}.
+Your role is to generate realistic and natural questions that students or parents—who may not be familiar with the admissions process—are likely to ask, and to provide clear, accurate answers to those questions.
+
 Your task is to provide exactly **{num_questions}** question(s) for an upcoming quiz/examination. 
 You are not to provide more or less than this number of questions. 
-The questions should be varied throughout the entire document, and in particular, questions should also be extracted from the table.
-The purpose of question(s) is to test the understanding of the students on the context information provided.
+
+
+You will be given a piece of text extracted from the context. The context may include:
+- Descriptions of high school subjects
+- Guidelines for school operations (e.g., 고교학점제)
+- Preferred subject lists for university admissions
+- Actual Q&A content provided by education offices or schools
+
 You must also provide the answer to each question. The answer should be based on the context information provided only.
 
-Restrict the question(s) to the context information provided only.
+### The questions must meet the following criteria:
+- They should sound like real questions students would ask (e.g., “이과 가려면 어떤 과목 들어야 해요?”)
+- They must be based **only on the content provided** in the document (Do not guess, infer, or fabricate any information)
+- They should focus on topics students truly care about, such as subject selection, graduation requirements, admissions, or career paths
+
+### The answers must meet the following criteria:
+- They must be written in full, friendly, and natural Korean sentences
+- The content must be strictly grounded in the given document (no assumptions or extra info)
+- They should provide helpful, reassuring, and actionable guidance for the student
+
+
 QUESTION and ANSWER should be written in Korean. response in JSON format which contains the `question` and `answer`.
 DO NOT USE List in JSON format.
 ANSWER should be a complete sentence.

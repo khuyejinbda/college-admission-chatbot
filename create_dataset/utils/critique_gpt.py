@@ -1,53 +1,32 @@
-from dotenv import load_dotenv
-import os
-import openai
-
-# 환경변수 로드
-load_dotenv()
-
-# OpenAI API 키 설정
-openai.api_key = os.environ.get("OPENAI_API_KEY")
-
-# OpenAI 클라이언트 생성
-client = openai.OpenAI()
-
 critique_system = """
-    Context information: The following QA pair is generated based on a given context.
-    
-    QUESTION: {QUESTION}
-    ANSWER: {ANSWER}
+Context information: The following QA pair is generated based on a given context.
 
-    You are a Teacher/Professor in {domain}. Evaluate the QA pair according to the following criteria:
-    1. Does the question accurately reflect the domain's key concepts?
-    2. Is the answer complete and factually correct based solely on the provided context?
-    3. Are the sentences clear and grammatically correct?
+QUESTION: {QUESTION}
+ANSWER: {ANSWER}
 
-    Provide a concise critique with suggestions for improvement if necessary.
+You are a Teacher/Professor in {domain}. 
+Your job is to **evaluate the following QA pair** and write a short critique **in Korean**, based solely on the provided context.
 
-    CRITIQUE should be written in Korean. response in JSON format which contains the `question` and `answer` and 'critique'.
-    CRITIQUE should be a complete sentence.
-    
-    Return your response in pure JSON format without any additional text, following this exact structure.
-    
-    #Format:
-    ```json
-    {{
-        "QUESTION": "고교학점제의 장점은 무엇인가요?",
-        "ANSWER": "학생이 주어진 과목을 학습하는 것이 아니라, 자신의 진로와 적성에 맞는 과목을 직접 선택해 학습함으로써 공부에 대한 흥미와 학습 동기를 높일 수 있다는 것이 가장 큰 장점입니다",
-        "CRITIQUE": "질문과 답변이 고교학점제의 핵심 개념을 잘 반영하고 있습니다. 답변은 고교학점제의 주요 장점을 명확하게 설명하고 있으나, 추가적인 장점들(예: 자기주도적 학습 능력 향상, 진로 탐색 기회 확대 등)을 포함하면 더 완성도 높은 답변이 될 것입니다."
-    }},
-    {{
-        "QUESTION": "그동안 운영되어 온 고교학점제와 올해부터 전면 시행되는 고교학점제의 차이점은 무엇인가요?",
-        "ANSWER": "그간 고교학점제 전면 시행에 대비하여 고교 현장에서 학생 선택형 교육과정 운영 등 학점제 요소를 일부 적용해 왔습니다. 다만, 지금까지 학년별 수업일 수 기준(수업일 수의 2/3이상 출석)만 충족하면 고등학교 졸업이 가능해 학점 취득과 졸업 자격 획득이 연계되지 않았습니다. 하지만 올해 신입생부터는 3년간 192학점 이상의 학점도 취득해야 졸업이 가능해집니다",
-        "CRITIQUE": "질문과 답변 모두 정확하고 명확합니다. 답변은 기존 고교학점제와 전면 시행되는 고교학점제의 가장 큰 차이점인 졸업 요건의 변화를 잘 설명하고 있습니다. 다만, 문장 끝에 마침표가 누락되어 있으니 추가하면 좋겠습니다."
-    }},
-    {{
-        "QUESTION": "고교-대학 연계 학점인정 과목이 무엇인가요?",
-        "ANSWER": "시도교육청과 협약한 지역대학이 개설하여 운영하는 과목으로서 학교 밖 교육의 한 유형에 해당하는 과목입니다. 해당 과목을 이수한 학생은 고등학교의 학점뿐만 아니라 추후 학생이 해당 대학에 진학할 경우 대학의 학점으로도 인정받을 수 있습니다.",
-        "CRITIQUE": "질문과 답변 모두 고교-대학 연계 학점인정 과목의 개념을 정확히 설명하고 있습니다. 답변은 이 과목의 정의와 학생들이 얻을 수 있는 혜택을 명확하게 제시하고 있어 적절합니다. 문법적으로도 오류가 없고 이해하기 쉽게 작성되었습니다."
-    }}
-    ```
-    """ 
+Evaluate the QA pair with the following goals:
+- The most important thing is to determine if the {QUESTION} and {ANSWER} are questions that can be derived from the provided CONTEXT.
+- Check if the **question properly reflects key concepts** in the domain  
+- Assess whether the **answer is factually correct and complete**, using only the information from the context  
+- Evaluate if the **language is clear, grammatically correct, and helpful to students**
+
+response in JSON format which contains the `question` and `answer` and 'critique'.
+CRITIQUE should be a complete sentence.
+
+Return your response in pure JSON format without any additional text, following this exact structure.
+
+#Format:
+```json
+{{
+    "QUESTION": "고교학점제의 장점은 무엇인가요?",
+    "ANSWER": "학생이 주어진 과목을 학습하는 것이 아니라, 자신의 진로와 적성에 맞는 과목을 직접 선택해 학습함으로써 공부에 대한 흥미와 학습 동기를 높일 수 있다는 것이 가장 큰 장점입니다",
+    "CRITIQUE": "질문과 답변이 고교학점제의 핵심 개념을 잘 반영하고 있습니다. 답변은 고교학점제의 주요 장점을 명확하게 설명하고 있으나, 추가적인 장점들(예: 자기주도적 학습 능력 향상, 진로 탐색 기회 확대 등)을 포함하면 더 완성도 높은 답변이 될 것입니다."
+}}
+```
+"""
 
 
 import os
@@ -63,34 +42,6 @@ load_dotenv()
 # OpenAI API 키 설정
 api_key = os.environ.get("OPENAI_API_KEY")
 
-# 비판 시스템 프롬프트
-critique_system = """
-Context information: The following QA pair is generated based on a given context.
-
-QUESTION: {QUESTION}
-ANSWER: {ANSWER}
-
-You are a Teacher/Professor in {domain}. Evaluate the QA pair according to the following criteria:
-1. Does the question accurately reflect the domain's key concepts?
-2. Is the answer complete and factually correct based solely on the provided context?
-3. Are the sentences clear and grammatically correct?
-
-Provide a concise critique with suggestions for improvement if necessary.
-
-CRITIQUE should be written in Korean. response in JSON format which contains the `question` and `answer` and 'critique'.
-CRITIQUE should be a complete sentence.
-
-Return your response in pure JSON format without any additional text, following this exact structure.
-
-#Format:
-```json
-{{
-    "QUESTION": "고교학점제의 장점은 무엇인가요?",
-    "ANSWER": "학생이 주어진 과목을 학습하는 것이 아니라, 자신의 진로와 적성에 맞는 과목을 직접 선택해 학습함으로써 공부에 대한 흥미와 학습 동기를 높일 수 있다는 것이 가장 큰 장점입니다",
-    "CRITIQUE": "질문과 답변이 고교학점제의 핵심 개념을 잘 반영하고 있습니다. 답변은 고교학점제의 주요 장점을 명확하게 설명하고 있으나, 추가적인 장점들(예: 자기주도적 학습 능력 향상, 진로 탐색 기회 확대 등)을 포함하면 더 완성도 높은 답변이 될 것입니다."
-}}
-```
-"""
 
 def custom_json_parser(text: str) -> Dict[str, str]:
     """
@@ -224,4 +175,3 @@ def critique_qa_pairs(qa_pairs: List[Dict[str, str]], domain: str) -> List[Dict[
             critique_results.append(critique_result)
     
     return critique_results
-

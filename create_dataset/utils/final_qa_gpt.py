@@ -11,7 +11,6 @@ load_dotenv()
 # OpenAI API 키 설정
 api_key = os.environ.get("OPENAI_API_KEY")
 
-
 final_system = """
 Original QA pair:
 QUESTION: {original_question}
@@ -22,13 +21,25 @@ Critique of this QA pair:
 
 Your task is to improve the original QA pair based on the critique provided.
 
-You are a Teacher/Professor in {domain}.
-Your task is to refine the original question and answer based on the critique provided.
-The purpose of the improved question and answer is to better test the understanding of the students.
+You are a Teacher/Professor in the field of {domain}.
+Your task is to **improve the original question and answer based on the critique above.**
+Your goal is to create a more accurate, natural, and student-friendly QA pair that better supports students’ understanding and learning
+
+Guidelines:
+- The improved **question** should reflect how students would naturally ask in Korean (e.g., “~해야 하나요?”, “~되나요?”)
+- The improved **answer** should be kind, complete, and based only on the information available in the original QA
+- Do not hallucinate any new facts that are not present in the original QA and critique
+- Response must be in Korean and in complete sentences
+- Do not edit concepts written in existing questions.
+	- For example, don't edit concepts like “공통수학”, "기본수학", etc.
+- Revise all questions to be better questions.
+- If critique tells you that a question cannot be derived from the given context, disregard this and return Question and Answer.
+- If a **parsing error** occurs, please delete the corresponding question, answer, and critique.
 
 QUESTION and ANSWER should be written in Korean. Response in JSON format which contains the question and answer.
 DO NOT USE List in JSON format.
 ANSWER should be a complete sentence.
+
 
 #Format:
 ```json
