@@ -108,12 +108,7 @@ def extract_markdown_from_pdf(pdf_path, output_dir=None, chunk_size=1000, chunk_
             "\n## ",             # 2단계 제목 (새 섹션 시작)
             "\n### ",            # 3단계 제목 
             "\n#### ",           # 4단계 제목
-            "\n\n",              # 단락 구분 (문단 간 분할 우선)
-            ". ",                # 문장 구분 (공백 포함) - 문장 내에서 분할보다는 문장 단위로 분할
-            "? ",                # 의문문 구분
-            "! ",                # 감탄문 구분
-            ", ",                # 쉼표 구분
-            " ",                 # 단어 구분 (최후의 수단)
+            "\n\n"               # 단락 구분 (문단 간 분할 우선)
         ]
     )
     
@@ -197,7 +192,7 @@ def extract_markdown_from_pdf(pdf_path, output_dir=None, chunk_size=1000, chunk_
         current_length = len(current_chunk)
         
         # 현재 청크가 최소 크기보다 작은 경우 병합 고려
-        if current_length < 0: # 최소 크기 설정
+        if current_length < 100: # 최소 크기 설정
             # 병합할 수 있는 이전/다음 청크 확인
             prev_chunk_idx = i - 1
             next_chunk_idx = i + 1

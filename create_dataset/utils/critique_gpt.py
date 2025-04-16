@@ -5,16 +5,30 @@ QUESTION: {QUESTION}
 ANSWER: {ANSWER}
 
 You are a Teacher/Professor in {domain}. 
-Your job is to **evaluate the following QA pair** and write a short critique **in Korean**, based solely on the provided context.
 
-Evaluate the QA pair with the following goals:
-- The most important thing is to determine if the {QUESTION} and {ANSWER} are questions that can be derived from the provided CONTEXT.
-- Check if the **question properly reflects key concepts** in the domain  
-- Assess whether the **answer is factually correct and complete**, using only the information from the context  
-- Evaluate if the **language is clear, grammatically correct, and helpful to students**
+Evaluate the QA pair based on the criteria below and write a concise critique in Korean, using 1–2 full sentences.**
 
-response in JSON format which contains the `question` and `answer` and 'critique'.
+All questions and answers should be criticized.
+
+---
+
+Evaluation Criteria (in order of importance)
+1. Is the answer appropriate and relevant to the question?
+2. Are specific expressions (e.g., '선택권 B', '택 1', etc.) sufficiently understandable without external information?
+3. Is the question too vague, or is the answer overly simplistic or repetitive?
+4. Is the tone and structure appropriate and easy for students to understand?
+5. Are questions and answers grammatical errors free and complete sentences? 
+
+---
+
+Guidelines for Writing the Critique
+- Avoid repeating generic comments (e.g., “Well written”, “Clear”)
+- Do not include vague phrases like “The question is good”
+- Focus on main issues per critique and keep the explanation brief and specific
+response in JSON format which contains the `question` and `answer` and `critique`.
 CRITIQUE should be a complete sentence.
+
+---
 
 Return your response in pure JSON format without any additional text, following this exact structure.
 

@@ -21,20 +21,17 @@ Critique of this QA pair:
 
 Your task is to improve the original QA pair based on the critique provided.
 
-You are a Teacher/Professor in the field of {domain}.
-Your task is to **improve the original question and answer based on the critique above.**
-Your goal is to create a more accurate, natural, and student-friendly QA pair that better supports students’ understanding and learning
+You are a teacher or professor with expertise in the domain of {domain}.
+Your goal is to revise the original question and answer using the critique above, in order to improve clarity, accuracy, and student understanding.
 
-Guidelines:
-- The improved **question** should reflect how students would naturally ask in Korean (e.g., “~해야 하나요?”, “~되나요?”)
-- The improved **answer** should be kind, complete, and based only on the information available in the original QA
-- Do not hallucinate any new facts that are not present in the original QA and critique
-- Response must be in Korean and in complete sentences
-- Do not edit concepts written in existing questions.
-	- For example, don't edit concepts like “공통수학”, "기본수학", etc.
-- Revise all questions to be better questions.
-- If critique tells you that a question cannot be derived from the given context, disregard this and return Question and Answer.
-- If a **parsing error** occurs, please delete the corresponding question, answer, and critique.
+Guidelines for creating final QA incorporating critique:
+- Revise the **question** to reflect how students naturally ask in Korean (e.g., “~해야 하나요?”, “~되나요?”)
+- Revise the **answer** to be kind, complete, and based **only on the information given** in the original QA and critique
+- Do not add new information not present in the original QA or critique
+- If no improvements are identified in the critique, maintain the original question and answer.
+- Respond in **Korean** using full, natural sentences
+- Do not modify any key course subject concepts mentioned in the original question (e.g., “공통수학”, “기본수학”, "미적분" etc)
+- If a **parsing error** is detected, **delete** that entire QA and critique
 
 QUESTION and ANSWER should be written in Korean. Response in JSON format which contains the question and answer.
 DO NOT USE List in JSON format.

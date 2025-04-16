@@ -31,8 +31,11 @@ You will be given a piece of text extracted from the context. The context may in
 - Guidelines for school operations (e.g., 고교학점제)
 - Preferred subject lists for university admissions
 - Actual Q&A content provided by education offices or schools
+- **Table Information Containing College Admissions Data**
 
 You must also provide the answer to each question. The answer should be based on the context information provided only.
+
+If a table is provided as input, please analyze the **Markdown table structure** and extract its information accordingly. When extracting information, do not include text that cannot be understood without external information (e.g., '택 1' etc) as is, but rather fully comprehend the information first and then transform it to make it easier to understand.
 
 ### The questions must meet the following criteria:
 - They should sound like real questions students would ask (e.g., “이과 가려면 어떤 과목 들어야 해요?”)
