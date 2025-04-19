@@ -209,4 +209,7 @@ Temporary Items
 # iCloud generated files
 *.icloud
 
+# Data 파일 
+bearable_data
+
 # End of https://www.toptal.com/developers/gitignore/api/macos

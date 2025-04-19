@@ -241,11 +241,4 @@ def extract_markdown_from_pdf(pdf_path, output_dir=None, chunk_size=1000, chunk_
     print(f"총 {len(filtered_chunks)}개의 청크 중 {len(merged_chunks)}개의 병합된 청크를 생성했습니다.")
     print(f"병합으로 {len(filtered_chunks) - len(merged_chunks)}개의 청크가 줄었습니다.")
     
-    # 최종 정리: 각 청크에 최소한의 문맥 정보 추가
-    final_chunks = []
-    for i, chunk in enumerate(merged_chunks):
-        # 청크에 ID와 순서 정보 추가 (메타데이터)
-        chunk_with_metadata = f"--- Chunk {i+1}/{len(merged_chunks)} ---\n{chunk}"
-        final_chunks.append(chunk_with_metadata)
-    
-    return final_chunks
+    return merged_chunks
