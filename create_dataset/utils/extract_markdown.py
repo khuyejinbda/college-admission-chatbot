@@ -4,18 +4,20 @@ import re
 import ast
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-def extract_markdown_from_pdf(pdf_path, output_dir=None, chunk_size=1000, chunk_overlap=200, save_files=False):
+def extract_markdown_from_pdf(pdf_path, output_dir=None, chunk_size=2000, chunk_overlap=200, save_files=False, min_chunk_size=200):
     """
     pymupdf4llm 라이브러리를 사용해 PDF 문서를 마크다운으로 변환하고 텍스트/표/이미지 등의 요소를 포함한 형태로 추출한 후
     의미론적 단위로 청크를 분할합니다. 표와 텍스트를 동일 청크에 통합 저장합니다.
     페이지 경계에서 끊긴 문장을 연결하는 기능이 강화되었습니다.
+    길이가 min_chunk_size 이하인 청크는 인접한 청크와 병합됩니다.
     
     Args:
         pdf_path: PDF 파일 경로 또는 PDF 파일이 있는 디렉토리 경로
         output_dir: 결과를 저장할 디렉토리 경로 (기본값: pdf_path의 상위 디렉토리/markdown_chunks)
-        chunk_size: 각 청크의 최대 문자 수 (기본값: 1000)
+        chunk_size: 각 청크의 최대 문자 수 (기본값: 2000)
         chunk_overlap: 청크 간 겹치는 문자 수 (기본값: 200)
         save_files: 결과를 파일로 저장할지 여부 (기본값: False)
+        min_chunk_size: 청크의 최소 문자 수, 이보다 작을 경우 병합 (기본값: 200)
     
     Returns:
         단일 파일 처리 시: 마크다운 형식의 텍스트 청크 리스트
@@ -31,11 +33,19 @@ def extract_markdown_from_pdf(pdf_path, output_dir=None, chunk_size=1000, chunk_
     # pymupdf4llm의 LlamaMarkdownReader를 사용하여 PDF 파일을 마크다운으로 변환
     reader = pymupdf4llm.LlamaMarkdownReader()
     
-    docs = reader.load_data(pdf_path)
+    # 각 페이지 정보를 유지하기 위한 파라미터 추가
+    docs = reader.load_data(pdf_path, keep_page_info=True)
     
     # 마크다운 문서 처리 및 구조 개선
     processed_docs = []
+    page_contents = {}  # 페이지별 내용 저장
+    last_page_number = -1
+    
     for doc in docs:
+        # 페이지 번호 추출 (metadata에서 가져오기)
+        page_number = doc.metadata.get('page', last_page_number + 1)
+        last_page_number = page_number
+        
         # 문서 구조를 강화하기 위한 후처리
         text = doc.text
         
@@ -53,251 +63,207 @@ def extract_markdown_from_pdf(pdf_path, output_dir=None, chunk_size=1000, chunk_
         # 특수 문자 정리 (불릿 포인트 등 변환)
         text = text.replace('\uf09f', '• ')
         
+        # 페이지별 내용 저장
+        if page_number not in page_contents:
+            page_contents[page_number] = []
+        
+        page_contents[page_number].append(text)
         processed_docs.append(text)
     
-    # 모든 문서 텍스트 합치기
-    full_text = "\n\n".join(processed_docs)
+    # === 페이지 단위로 내용 처리 ===
+    page_texts = {}
     
-    # === 페이지 경계에서 끊긴 문장 연결 강화 ===
-    
-    # 1. 마침표, 물음표, 느낌표 등으로 끝나지 않은 줄을 다음 줄과 연결
-    # 단, 제목('#'으로 시작), 표('|'로 시작), 구분선('---'로 시작) 등은 제외
-    full_text = re.sub(r'([^.!?"\'\]\)\}])\n+((?![#\|\-\*])[가-힣a-zA-Z0-9(])', r'\1 \2', full_text)
-    
-    # 2. 마지막 단어가 잘렸을 가능성이 있는 경우 처리 (한글 또는 영문자로 끝나는 줄)
-    full_text = re.sub(r'([가-힣a-zA-Z])\n+((?![#\|\-\*])[가-힣a-zA-Z0-9])', r'\1\2', full_text)
-    
-    # 3. 특수한 경우: "보장" 또는 "보장 "으로 끝나는 문장과 "지도"로 시작하는 문장 연결
-    # 예: "최소 성취 수준 보장" + "지도는..." -> "최소 성취 수준 보장 지도는..."
-    full_text = re.sub(r'(보장)\s*\n+\s*(지도)', r'\1 \2', full_text)
-    
-    # 4. 일반적인 한글 명사로 끝나는 경우와 다음 줄의 시작이 조사일 경우 연결
-    # 예: "학생" + "에게는..." -> "학생에게는..."
-    full_text = re.sub(r'([가-힣]+)\n+([은는이가을를에의로])', r'\1\2', full_text)
-    
-    # 5. 과도한 줄바꿈 정리 (3개 이상 -> 2개로)
-    full_text = re.sub(r'\n{3,}', r'\n\n', full_text)
-    
-    # 6. 표와 주변 텍스트의 관계를 명확히 하기 위한 처리
-    # 표 시작 전에 최소 한 줄의 공백 추가
-    full_text = re.sub(r'([^\n])\n(\|[-\s|]+\|)', r'\1\n\n\2', full_text)
-    
-    # 표 끝 후에 최소 한 줄의 공백 추가
-    full_text = re.sub(r'(\|\s*\n)(?!\|)([^\n])', r'\1\n\2', full_text)
-    
-    # 7. 빈 헤더(#) 정리
-    full_text = re.sub(r'\n#\s*\n', r'\n\n', full_text)
-    
-    # 8. 섹션 구분을 위한 패턴 강화 (제목 형식 강화)
-    full_text = re.sub(r'(?<!\n)#{1,6}\s+', r'\n\n\g<0>', full_text)
-    
-    # 9. ----- 구분자 정리 (중복 제거 및 표준화)
-    full_text = re.sub(r'\n{2,}-----\n{2,}', r'\n\n-----\n\n', full_text)
-    
-    # 10. ".\n" 패턴 제거 (문장 분할 방지)
-    full_text = re.sub(r'\.\n([가-힣a-zA-Z0-9])', r'. \1', full_text)
-    
-    # 의미론적 단위로 청크 분할
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        length_function=len,
-        # 의미론적 분할을 위한 구분자 설정 (우선순위 순)
-        separators=[
-            "\n# ",              # 1단계 제목 (새 챕터 시작)
-            "\n## ",             # 2단계 제목 (새 섹션 시작)
-            "\n### ",            # 3단계 제목 
-            "\n#### ",           # 4단계 제목
-            "\n\n"               # 단락 구분 (문단 간 분할 우선)
-        ]
-    )
-    
-    # === 1차 청크 분할 (이 단계에서 오버랩 적용) ===
-    initial_chunks = text_splitter.split_text(full_text)
-    print(f"초기 분할: 총 {len(initial_chunks)}개의 청크로 나누었습니다.")
-    
-    # === 텍스트 오버랩 분석 ===
-    # 디버깅용: 처음 몇 개 청크의 오버랩 영역 확인
-    if len(initial_chunks) >= 2:
-        for i in range(min(3, len(initial_chunks) - 1)):
-            chunk1 = initial_chunks[i]
-            chunk2 = initial_chunks[i + 1]
-            # 오버랩 영역 찾기
-            overlap_text = find_overlap(chunk1, chunk2)
-            if overlap_text:
-                print(f"청크 {i}와 {i+1} 사이의 오버랩 (길이: {len(overlap_text)}): {overlap_text[:50]}...")
-    
-    # === 표 처리 로직 ===
-    # 표가 분할되지 않도록 처리하면서 오버랩 유지
-    table_processed_chunks = []
-    table_buffer = ""
-    in_table = False
-    
-    for i, chunk in enumerate(initial_chunks):
-        # 표 시작 패턴 확인 (표 시작 라인이 있고 표 끝 패턴이 없는 경우)
-        if not in_table and re.search(r'\n\|[-\s|]+\|', chunk) and not chunk.count('|') % 2 == 0:
-            in_table = True
-            table_buffer = chunk
-        # 표 내부 또는 표 끝 패턴 확인
-        elif in_table:
-            table_buffer += "\n" + chunk
-            # 각 행의 열 수가 일치하는지 확인 (표가 완성되었는지 여부)
-            table_lines = [line for line in table_buffer.split('\n') if line.startswith('|') and line.endswith('|')]
-            if len(table_lines) >= 2:  # 헤더 줄과 구분선 최소 2줄 이상 필요
-                pipe_counts = [line.count('|') for line in table_lines]
-                if len(set(pipe_counts)) == 1:  # 모든 행의 열 수가 동일하면 표가 완성됨
-                    in_table = False
-                    
-                    # 다음 청크와의 오버랩 유지
-                    if i+1 < len(initial_chunks):
-                        # 다음 청크에서 오버랩 영역을 찾아 추가
-                        next_chunk = initial_chunks[i+1]
-                        table_buffer = maintain_overlap(table_buffer, next_chunk, chunk_overlap)
-                    
-                    table_processed_chunks.append(table_buffer)
-                    table_buffer = ""
-        else:
-            # 표가 아닌 경우 그대로 추가
-            # 이전에 처리된 청크와의 오버랩은 이미 RecursiveCharacterTextSplitter에서 처리됨
-            table_processed_chunks.append(chunk)
-    
-    # 남은 버퍼 처리
-    if table_buffer:
-        table_processed_chunks.append(table_buffer)
-    
-    print(f"표 처리 후: 총 {len(table_processed_chunks)}개의 청크")
-    
-    # === 구분선 제거 및 작은 청크 처리 ===
-    # "-----"만 있는 청크 필터링 및 작은 청크 병합
-    filtered_chunks = []
-    small_chunks_indices = []  # 작은 청크의 인덱스 저장
-    
-    # 1단계: 무의미한 구분선 청크 필터링 및 작은 청크 식별
-    for i, chunk in enumerate(table_processed_chunks):
-        # 청크 내용 정리
-        clean_content = chunk.strip()
+    for page_num, texts in sorted(page_contents.items()):
+        # 페이지 내 모든 텍스트 합치기
+        page_text = "\n\n".join(texts)
         
-        # 구분선만 있는 청크 제외
-        if clean_content and not re.match(r'^-+\s*$', clean_content) and not re.match(r'^[\s\n-]*$', clean_content):
-            filtered_chunks.append(chunk)
+        # 페이지 내 텍스트 처리 (문장 연결, 구조 개선 등)
+        # 1. 마침표, 물음표, 느낌표 등으로 끝나지 않은 줄을 다음 줄과 연결
+        page_text = re.sub(r'([^.!?"\'\]\)\}])\n+((?![#\|\-\*])[가-힣a-zA-Z0-9(])', r'\1 \2', page_text)
+        
+        # 2. 마지막 단어가 잘렸을 가능성이 있는 경우 처리 (한글 또는 영문자로 끝나는 줄)
+        page_text = re.sub(r'([가-힣a-zA-Z])\n+((?![#\|\-\*])[가-힣a-zA-Z0-9])', r'\1\2', page_text)
+        
+        # 3. 특수한 경우 처리
+        page_text = re.sub(r'(보장)\s*\n+\s*(지도)', r'\1 \2', page_text)
+        
+        # 4. 일반적인 한글 명사로 끝나는 경우와 다음 줄의 시작이 조사일 경우 연결
+        page_text = re.sub(r'([가-힣]+)\n+([은는이가을를에의로])', r'\1\2', page_text)
+        
+        # 5. 과도한 줄바꿈 정리 (3개 이상 -> 2개로)
+        page_text = re.sub(r'\n{3,}', r'\n\n', page_text)
+        
+        # 6. 표와 주변 텍스트의 관계를 명확히 하기 위한 처리
+        page_text = re.sub(r'([^\n])\n(\|[-\s|]+\|)', r'\1\n\n\2', page_text)
+        page_text = re.sub(r'(\|\s*\n)(?!\|)([^\n])', r'\1\n\2', page_text)
+        
+        # 7. 구분선(----) 제거
+        page_text = re.sub(r'\n\s*-{3,}\s*\n', r'\n\n', page_text)
+        page_text = re.sub(r'^\s*-{3,}\s*$', r'', page_text, flags=re.MULTILINE)
+        
+        # 8-10. 기타 문서 구조 개선
+        page_text = re.sub(r'\n#\s*\n', r'\n\n', page_text)
+        page_text = re.sub(r'(?<!\n)#{1,6}\s+', r'\n\n\g<0>', page_text)
+        page_text = re.sub(r'\.\n([가-힣a-zA-Z0-9])', r'. \1', page_text)
+        
+        page_texts[page_num] = page_text
+    
+    # === 표 감지 로직 ===
+    # 각 페이지별 표 위치 식별
+    page_tables = {}
+    
+    for page_num, page_text in page_texts.items():
+        tables = []
+        table_pattern = r'(\|[^\n]*\|(\n\|[^\n]*\|)+)'
+        
+        for match in re.finditer(table_pattern, page_text):
+            tables.append((match.start(), match.end(), match.group(0)))
+        
+        page_tables[page_num] = tables
+        
+        if tables:
+            print(f"페이지 {page_num}에서 {len(tables)}개의 표를 감지했습니다.")
+    
+    # === 페이지 간 표 연속성 처리 ===
+    # 페이지 간에 연속된 표 식별
+    connected_pages = []
+    
+    for page_num in sorted(page_texts.keys()):
+        if page_num + 1 in page_texts:
+            current_page_text = page_texts[page_num]
+            next_page_text = page_texts[page_num + 1]
             
-            # 작은 청크 식별 (나중에 병합 처리)
-            if len(clean_content) < 100:
-                small_chunks_indices.append(len(filtered_chunks) - 1)
+            # 현재 페이지가 표로 끝나고 다음 페이지가 표로 시작하는지 확인
+            if (current_page_text.rstrip().endswith('|') and 
+                '|' in next_page_text.lstrip()[:50]):
+                connected_pages.append((page_num, page_num + 1))
+                print(f"페이지 {page_num}과 {page_num + 1} 사이에 연속된 표를 감지했습니다.")
     
-    print(f"필터링 후: 총 {len(filtered_chunks)}개의 유효 청크 (작은 청크: {len(small_chunks_indices)}개)")
+    # === 페이지 그룹화 ===
+    # 연결된 페이지들을 그룹화
+    page_groups = []
+    processed = set()
     
-    # 2단계: 작은 청크 병합 (오버랩 유지)
-    final_chunks = []
-    skip_index = set()  # 이미 병합된 청크의 인덱스를 저장
+    # 먼저 연결된 페이지 그룹 만들기
+    for page1, page2 in connected_pages:
+        if page1 not in processed and page2 not in processed:
+            group = {page1, page2}
+            processed.add(page1)
+            processed.add(page2)
+            
+            # 그룹에 추가적인 연결된 페이지가 있는지 확인
+            changed = True
+            while changed:
+                changed = False
+                for p1, p2 in connected_pages:
+                    if p1 in group and p2 not in group:
+                        group.add(p2)
+                        processed.add(p2)
+                        changed = True
+                    elif p2 in group and p1 not in group:
+                        group.add(p1)
+                        processed.add(p1)
+                        changed = True
+            
+            page_groups.append(sorted(group))
     
-    for i in range(len(filtered_chunks)):
-        if i in skip_index:
+    # 그룹화되지 않은 페이지 추가
+    for page_num in sorted(page_texts.keys()):
+        if page_num not in processed:
+            page_groups.append([page_num])
+    
+    # 페이지 그룹 정렬
+    page_groups.sort(key=lambda x: x[0])
+    
+    # === 페이지 그룹별 청크 생성 ===
+    initial_chunks = []
+    
+    for group in page_groups:
+        # 구분선(-----)만 있는 페이지는 건너뛰기
+        valid_pages = []
+        for page in group:
+            page_content = page_texts[page].strip()
+            # 구분선만 있는지 확인
+            if page_content and not re.match(r'^-{3,}\s*$', page_content) and not re.match(r'^[\s\n-]*$', page_content):
+                valid_pages.append(page)
+        
+        # 유효한 페이지가 없는 경우 건너뛰기
+        if not valid_pages:
             continue
             
-        current_chunk = filtered_chunks[i]
+        group_text = "\n\n".join([page_texts[page] for page in valid_pages])
         
-        # 현재 청크가 작은 청크인지 확인
-        if i in small_chunks_indices:
-            # 병합 가능한 인접 청크 찾기
-            if i > 0 and i < len(filtered_chunks) - 1:
-                # 이전 청크와 다음 청크 모두 있는 경우
-                prev_chunk = filtered_chunks[i-1] if i-1 not in skip_index else None
-                next_chunk = filtered_chunks[i+1] if i+1 not in skip_index else None
-                
-                if prev_chunk and next_chunk:
-                    # 이전/다음 청크 중 더 작은 쪽과 병합
-                    if len(prev_chunk) <= len(next_chunk) and i-1 not in small_chunks_indices:
-                        # 이전 청크가 더 작으면 이전 청크에 현재 청크 병합 (오버랩 유지)
-                        merged_content = prev_chunk + "\n\n" + current_chunk
-                        
-                        # 다음 청크와의 오버랩 유지
-                        merged_content = maintain_overlap(merged_content, next_chunk, chunk_overlap)
-                        
-                        # 이미 추가된 이전 청크를 업데이트
-                        if final_chunks:  # 안전 검사
-                            final_chunks[-1] = merged_content
-                        else:
-                            final_chunks.append(merged_content)
-                        skip_index.add(i)
-                    elif i+1 not in small_chunks_indices:
-                        # 다음 청크와 병합
-                        merged_content = current_chunk + "\n\n" + next_chunk
-                        
-                        # 병합된 청크의 다음 청크와 오버랩 유지 (있는 경우)
-                        if i+2 < len(filtered_chunks):
-                            merged_content = maintain_overlap(merged_content, filtered_chunks[i+2], chunk_overlap)
-                            
-                        final_chunks.append(merged_content)
-                        skip_index.add(i+1)
-                    else:
-                        # 둘 다 작은 청크인 경우 그냥 추가
-                        final_chunks.append(current_chunk)
-                elif prev_chunk and i-1 not in small_chunks_indices:
-                    # 이전 청크만 있고 작은 청크가 아닌 경우
-                    merged_content = prev_chunk + "\n\n" + current_chunk
-                    # 이미 추가된 이전 청크를 업데이트
-                    if final_chunks:  # 안전 검사
-                        final_chunks[-1] = merged_content
-                    else:
-                        final_chunks.append(merged_content)
-                    skip_index.add(i)
-                elif next_chunk and i+1 not in small_chunks_indices:
-                    # 다음 청크만 있고 작은 청크가 아닌 경우
-                    merged_content = current_chunk + "\n\n" + next_chunk
-                    
-                    # 병합된 청크의 다음 청크와 오버랩 유지 (있는 경우)
-                    if i+2 < len(filtered_chunks):
-                        merged_content = maintain_overlap(merged_content, filtered_chunks[i+2], chunk_overlap)
-                        
-                    final_chunks.append(merged_content)
-                    skip_index.add(i+1)
-                else:
-                    # 병합할 수 있는 청크가 없는 경우
-                    final_chunks.append(current_chunk)
-            elif i > 0 and i-1 not in skip_index and i-1 not in small_chunks_indices:
-                # 이전 청크만 있는 경우
-                merged_content = filtered_chunks[i-1] + "\n\n" + current_chunk
-                # 이미 추가된 이전 청크를 업데이트
-                if final_chunks:  # 안전 검사
-                    final_chunks[-1] = merged_content
-                else:
-                    final_chunks.append(merged_content)
-                skip_index.add(i)
-            elif i < len(filtered_chunks) - 1 and i+1 not in skip_index and i+1 not in small_chunks_indices:
-                # 다음 청크만 있는 경우
-                merged_content = current_chunk + "\n\n" + filtered_chunks[i+1]
-                
-                # 병합된 청크의 다음 청크와 오버랩 유지 (있는 경우)
-                if i+2 < len(filtered_chunks):
-                    merged_content = maintain_overlap(merged_content, filtered_chunks[i+2], chunk_overlap)
-                    
-                final_chunks.append(merged_content)
-                skip_index.add(i+1)
-            else:
-                # 병합할 수 있는 청크가 없는 경우
-                final_chunks.append(current_chunk)
+        # 구분선 제거 전처리
+        group_text = re.sub(r'\n\s*-{3,}\s*\n', '\n\n', group_text)
+        group_text = re.sub(r'^\s*-{3,}\s*$', '', group_text, flags=re.MULTILINE)
+        
+        # 표 보호 처리
+        protected_text = protect_table_format(group_text)
+        
+        # 청크 크기를 고려한 분할 여부 결정
+        if len(protected_text) <= chunk_size:
+            # 청크 크기 이하면 그대로 유지
+            clean_text = protected_text.replace("<TABLE_START>", "").replace("<TABLE_END>", "")
+            # 최종 정리 - 빈 줄 제거 및 구분선 제거
+            clean_text = re.sub(r'\n{3,}', '\n\n', clean_text)
+            clean_text = re.sub(r'^\s*-{3,}\s*$', '', clean_text, flags=re.MULTILINE)
+            
+            if clean_text.strip():  # 내용이 있는 경우만 추가
+                initial_chunks.append(clean_text)
         else:
-            # 정상 크기 청크는 그대로 추가
-            # 다음 청크와의 오버랩 유지
-            if i < len(filtered_chunks) - 1 and i+1 not in skip_index:
-                current_chunk = maintain_overlap(current_chunk, filtered_chunks[i+1], chunk_overlap)
+            # 청크 크기 초과 시 분할 필요
+            # 표 보존하면서 분할
+            splits = split_with_table_preservation(protected_text, chunk_size, chunk_overlap)
+            
+            # 각 분할된 청크에서 구분선 제거 최종 정리
+            for i, split in enumerate(splits):
+                clean_split = re.sub(r'^\s*-{3,}\s*$', '', split, flags=re.MULTILINE)
+                clean_split = re.sub(r'\n{3,}', '\n\n', clean_split)
                 
+                if clean_split.strip():  # 내용이 있는 경우만 추가
+                    initial_chunks.append(clean_split)
+    
+    # === 청크 간 오버랩 생성 ===
+    # 인접한 청크 간 오버랩 생성
+    final_chunks = []
+    
+    for i in range(len(initial_chunks)):
+        current_chunk = initial_chunks[i]
+        
+        # 첫 번째 청크는 그대로 추가
+        if i == 0:
             final_chunks.append(current_chunk)
+            continue
+        
+        # 이전 청크와 현재 청크 사이의 오버랩 생성
+        prev_chunk = initial_chunks[i-1]
+        
+        # 오버랩이 있는지 확인
+        existing_overlap = find_overlap(prev_chunk, current_chunk)
+        
+        # 오버랩이 없거나 충분하지 않은 경우, 이전 청크의 마지막 부분을 현재 청크 앞에 추가
+        if not existing_overlap or len(existing_overlap) < chunk_overlap:
+            # 이전 청크의 마지막 부분 가져오기
+            if len(prev_chunk) > chunk_overlap:
+                overlap_from_prev = prev_chunk[-chunk_overlap:]
+                
+                # 문장 시작 찾기 (자연스러운 중첩을 위해)
+                sentence_start = find_sentence_start(overlap_from_prev)
+                if sentence_start > 0:
+                    overlap_from_prev = overlap_from_prev[sentence_start:]
+                
+                # 오버랩 적용
+                if not current_chunk.startswith(overlap_from_prev):
+                    # 표가 포함된 경우 문제가 발생할 수 있으므로 표가 있는지 확인
+                    if not '|' in overlap_from_prev and not '<TABLE_START>' in current_chunk[:100]:
+                        current_chunk = overlap_from_prev + current_chunk
+        
+        final_chunks.append(current_chunk)
     
-    print(f"최종 결과: 총 {len(final_chunks)}개의 청크 (병합으로 {len(filtered_chunks) - len(final_chunks)}개 감소)")
+    # === 작은 청크 처리 (새로 추가된 기능) ===
+    merged_chunks = merge_small_chunks(final_chunks, min_chunk_size)
     
-    # 최종 오버랩 확인 (디버깅용)
-    if len(final_chunks) >= 2:
-        for i in range(min(3, len(final_chunks) - 1)):
-            chunk1 = final_chunks[i]
-            chunk2 = final_chunks[i + 1]
-            # 오버랩 영역 찾기
-            overlap_text = find_overlap(chunk1, chunk2)
-            if overlap_text:
-                print(f"최종 청크 {i}와 {i+1} 사이의 오버랩 (길이: {len(overlap_text)}): {overlap_text[:50]}...")
-            else:
-                print(f"경고: 청크 {i}와 {i+1} 사이에 오버랩이 없습니다!")
+    print(f"최종 결과: 총 {len(merged_chunks)}개의 청크를 생성했습니다. (작은 청크 병합 후)")
     
     # 결과 파일로 저장 (옵션)
     if save_files:
@@ -313,14 +279,258 @@ def extract_markdown_from_pdf(pdf_path, output_dir=None, chunk_size=1000, chunk_
         base_name = os.path.basename(pdf_path).replace(".pdf", "") if os.path.isfile(pdf_path) else "combined"
         
         # 청크 파일 저장
-        for i, chunk in enumerate(final_chunks):
+        for i, chunk in enumerate(merged_chunks):
             chunk_file = os.path.join(output_dir, f"{base_name}_chunk_{i+1:03d}.md")
             with open(chunk_file, "w", encoding="utf-8") as f:
                 f.write(chunk)
         
-        print(f"총 {len(final_chunks)}개의 청크를 {output_dir} 디렉토리에 저장했습니다.")
+        print(f"총 {len(merged_chunks)}개의 청크를 {output_dir} 디렉토리에 저장했습니다.")
     
-    return final_chunks
+    return merged_chunks
+
+def merge_small_chunks(chunks, min_chunk_size):
+    """
+    길이가 min_chunk_size보다 작은 청크들을 인접한 청크와 병합합니다.
+    병합 시 이전이나 이후 청크 중 더 작은 크기의 청크와 병합합니다.
+    
+    Args:
+        chunks: 병합할 청크 리스트
+        min_chunk_size: 최소 청크 크기 (이보다 작은 청크는 병합됨)
+    
+    Returns:
+        병합된 청크 리스트
+    """
+    if not chunks:
+        return []
+    
+    # 병합이 필요한 청크가 있는지 확인
+    need_merge = any(len(chunk) < min_chunk_size for chunk in chunks)
+    if not need_merge:
+        return chunks
+    
+    result = []
+    i = 0
+    
+    while i < len(chunks):
+        current_chunk = chunks[i]
+        
+        # 현재 청크가 최소 크기보다 작은 경우 처리
+        if len(current_chunk) < min_chunk_size:
+            # 첫 번째 청크인 경우 (뒤의 청크와만 병합 가능)
+            if i == 0:
+                if i + 1 < len(chunks):  # 다음 청크가 있는 경우
+                    merged_chunk = current_chunk + "\n\n" + chunks[i + 1]
+                    result.append(merged_chunk)
+                    i += 2  # 다음 청크도 처리했으므로 +2
+                else:  # 마지막 청크인 경우 그대로 추가
+                    result.append(current_chunk)
+                    i += 1
+            # 마지막 청크인 경우 (앞의 청크와만 병합 가능)
+            elif i == len(chunks) - 1:
+                # 이미 앞 청크는 처리되었으므로, 결과에서 마지막 항목을 빼고 병합
+                prev_chunk = result.pop()
+                merged_chunk = prev_chunk + "\n\n" + current_chunk
+                result.append(merged_chunk)
+                i += 1
+            # 중간 청크인 경우 (앞뒤 청크 비교 후 더 작은 쪽과 병합)
+            else:
+                prev_chunk = chunks[i - 1] if i - 1 >= 0 else ""
+                next_chunk = chunks[i + 1] if i + 1 < len(chunks) else ""
+                
+                # 앞뒤 청크 길이 비교 (이미 앞 청크가 result에 있으면 복잡해지므로 길이만 비교)
+                prev_chunk_size = len(prev_chunk)
+                next_chunk_size = len(next_chunk)
+                
+                # 더 작은 쪽과 병합 (같으면 앞쪽과 병합)
+                if not next_chunk or (prev_chunk and prev_chunk_size <= next_chunk_size):
+                    # 앞의 청크와 병합 (앞 청크는 이미 result에 추가되어 있음)
+                    prev_chunk = result.pop()  # 결과에서 마지막 항목 제거
+                    merged_chunk = prev_chunk + "\n\n" + current_chunk
+                    result.append(merged_chunk)
+                    i += 1
+                else:
+                    # 뒤의 청크와 병합
+                    merged_chunk = current_chunk + "\n\n" + next_chunk
+                    result.append(merged_chunk)
+                    i += 2  # 다음 청크도 처리했으므로 +2
+        else:
+            # 현재 청크 크기가 충분한 경우 그대로 추가
+            result.append(current_chunk)
+            i += 1
+    
+    # 병합 후에도 작은 청크가 있는지 재확인
+    if any(len(chunk) < min_chunk_size for chunk in result):
+        # 재귀적으로 다시 병합 수행 (최대 3회까지)
+        return merge_small_chunks(result, min_chunk_size)
+    
+    return result
+
+def protect_table_format(text):
+    """표 형식을 보존하기 위해 특수 토큰으로 래핑합니다. 구분선은 무시합니다."""
+    lines = text.split('\n')
+    in_table = False
+    protected_lines = []
+    
+    for i, line in enumerate(lines):
+        # 구분선 무시 (-----와 같은 패턴)
+        if re.match(r'^\s*-{3,}\s*$', line):
+            continue
+            
+        # 표 시작 감지
+        if re.match(r'^\s*\|', line) and not in_table:
+            in_table = True
+            protected_lines.append("<TABLE_START>")
+            protected_lines.append(line)
+        # 표 내부 라인
+        elif in_table and re.match(r'^\s*\|', line):
+            protected_lines.append(line)
+        # 표 종료 감지
+        elif in_table and not re.match(r'^\s*\|', line):
+            in_table = False
+            protected_lines.append("<TABLE_END>")
+            
+            # 종료 후 라인이 구분선이 아닌 경우만 추가
+            if not re.match(r'^\s*-{3,}\s*$', line):
+                protected_lines.append(line)
+        # 일반 텍스트
+        else:
+            protected_lines.append(line)
+    
+    # 열린 표가 있으면 닫기
+    if in_table:
+        protected_lines.append("<TABLE_END>")
+        
+    return '\n'.join(protected_lines)
+
+def split_with_table_preservation(text, chunk_size, chunk_overlap):
+    """표를 보존하면서 텍스트를 청크로 분할합니다. 구분선은 무시합니다."""
+    chunks = []
+    
+    # 구분선 제거 (전처리)
+    text = re.sub(r'\n\s*-{3,}\s*\n', '\n\n', text)
+    
+    # 특수 토큰으로 분할
+    table_sections = re.split(r'(<TABLE_START>.*?<TABLE_END>)', text, flags=re.DOTALL)
+    
+    current_chunk = ""
+    last_chunk_end = ""  # 마지막 청크의 끝부분 (오버랩용)
+    
+    for section in table_sections:
+        # 구분선만 있는 섹션 건너뛰기
+        if re.match(r'^\s*-{3,}\s*$', section.strip()):
+            continue
+            
+        if section.startswith("<TABLE_START>") and section.endswith("<TABLE_END>"):
+            # 표 섹션 처리
+            table_content = section.replace("<TABLE_START>", "").replace("<TABLE_END>", "")
+            
+            # 표 내용이 비어있거나 구분선만 있는 경우 건너뛰기
+            if not table_content.strip() or re.match(r'^\s*-{3,}\s*$', table_content.strip()):
+                continue
+                
+            # 현재 청크에 표를 추가했을 때 최대 크기를 초과하는지 확인
+            if len(current_chunk) + len(table_content) > chunk_size and current_chunk:
+                # 현재 청크 저장
+                chunks.append(current_chunk)
+                
+                # 오버랩을 위해 마지막 청크 끝부분 저장
+                if len(current_chunk) > chunk_overlap:
+                    last_chunk_end = current_chunk[-chunk_overlap:]
+                else:
+                    last_chunk_end = current_chunk
+                
+                # 새 청크 시작 - 이전 청크와의 오버랩 추가
+                if last_chunk_end and not table_content.startswith(last_chunk_end):
+                    current_chunk = table_content
+                else:
+                    current_chunk = table_content
+            else:
+                # 현재 청크에 표 추가
+                if current_chunk and not current_chunk.endswith("\n\n"):
+                    current_chunk += "\n\n"
+                current_chunk += table_content
+        else:
+            # 일반 텍스트 섹션 처리
+            # 구분선 패턴 제거
+            clean_section = re.sub(r'\n\s*-{3,}\s*\n', '\n\n', section)
+            clean_section = re.sub(r'^\s*-{3,}\s*$', '', clean_section, flags=re.MULTILINE)
+            
+            if not clean_section.strip():
+                # 빈 섹션은 건너뛰기
+                continue
+                
+            # 텍스트 분할기 설정 - 오버랩 적용
+            text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+                length_function=len,
+                separators=["\n# ", "\n## ", "\n### ", "\n#### ", "\n\n"]
+            )
+            
+            # 현재 청크가 비어있지 않고 텍스트를 추가하면 크기를 초과하는 경우
+            if current_chunk and len(current_chunk) + len(clean_section) > chunk_size:
+                # 현재 청크 저장
+                chunks.append(current_chunk)
+                
+                # 오버랩을 위해 마지막 청크 끝부분 저장
+                if len(current_chunk) > chunk_overlap:
+                    last_chunk_end = current_chunk[-chunk_overlap:]
+                else:
+                    last_chunk_end = current_chunk
+                
+                # 새 청크 시작 - 텍스트 분할 적용
+                text_chunks = text_splitter.split_text(clean_section)
+                
+                # 첫 번째 분할 청크는 현재 청크로 설정하고 나머지는 개별 청크로 추가
+                if text_chunks:
+                    # 첫 번째 청크에 오버랩 추가
+                    first_chunk = text_chunks[0]
+                    # 이미 오버랩이 있는지 확인
+                    if not last_chunk_end or first_chunk.startswith(last_chunk_end):
+                        current_chunk = first_chunk
+                    else:
+                        # 자연스러운 문장 시작점 찾기
+                        sentence_start = find_sentence_start(last_chunk_end)
+                        if sentence_start > 0:
+                            overlap_text = last_chunk_end[sentence_start:]
+                            if not first_chunk.startswith(overlap_text):
+                                current_chunk = overlap_text + first_chunk
+                            else:
+                                current_chunk = first_chunk
+                        else:
+                            current_chunk = first_chunk
+                    
+                    # 나머지 청크들 간에도 오버랩 적용
+                    for i in range(1, len(text_chunks)):
+                        chunks.append(current_chunk)
+                        prev_chunk = current_chunk
+                        current_chunk = text_chunks[i]
+                        
+                        # 인접한 청크 간 오버랩 확인
+                        if not current_chunk.startswith(prev_chunk[-chunk_overlap:]) and len(prev_chunk) > chunk_overlap:
+                            overlap_text = prev_chunk[-chunk_overlap:]
+                            sentence_start = find_sentence_start(overlap_text)
+                            if sentence_start > 0:
+                                overlap_text = overlap_text[sentence_start:]
+                                if not current_chunk.startswith(overlap_text):
+                                    current_chunk = overlap_text + current_chunk
+                else:
+                    current_chunk = ""
+            else:
+                # 현재 청크에 텍스트 추가
+                if current_chunk and not current_chunk.endswith("\n\n") and not clean_section.startswith("\n"):
+                    current_chunk += "\n\n"
+                current_chunk += clean_section
+    
+    # 마지막 청크 추가
+    if current_chunk:
+        chunks.append(current_chunk)
+    
+    # 특수 토큰 제거 (남아있을 경우)
+    for i in range(len(chunks)):
+        chunks[i] = chunks[i].replace("<TABLE_START>", "").replace("<TABLE_END>", "")
+    
+    return chunks
 
 def find_overlap(text1, text2, min_overlap=10):
     """두 텍스트 간의 오버랩 영역을 찾습니다."""
@@ -343,28 +553,21 @@ def find_overlap(text1, text2, min_overlap=10):
     
     return ""
 
-def maintain_overlap(current_chunk, next_chunk, overlap_size):
-    """현재 청크에 다음 청크와의 오버랩을 유지합니다."""
-    # 다음 청크가 충분히 길지 않으면 그대로 반환
-    if len(next_chunk) < overlap_size:
-        return current_chunk
-        
-    # 다음 청크의 시작 부분에서 오버랩 크기만큼 가져오기
-    overlap_text = next_chunk[:overlap_size]
+def find_sentence_start(text):
+    """텍스트 내에서 자연스러운 문장 시작점을 찾습니다."""
+    # 마침표, 물음표, 느낌표 등 문장 종결 부호 위치 찾기
+    sentence_ends = [m.start() for m in re.finditer(r'[.!?]\s+', text)]
     
-    # 현재 청크에 이미 오버랩 텍스트가 포함되어 있는지 확인
-    if current_chunk.endswith(overlap_text):
-        return current_chunk
-        
-    # 오버랩 텍스트의 일부가 이미 현재 청크에 포함되어 있는지 확인
-    existing_overlap = find_overlap(current_chunk, next_chunk)
-    if existing_overlap:
-        # 이미 존재하는 오버랩이 있으면 추가 오버랩 필요 없음
-        return current_chunk
-        
-    # 오버랩 텍스트를 현재 청크 끝에 추가
-    # 자연스러운 연결을 위해 줄바꿈 추가
-    return current_chunk + "\n\n" + overlap_text
-
-# 사용 예시
-# chunks = extract_markdown_from_pdf("example.pdf", chunk_size=1000, chunk_overlap=200, save_files=True)
+    if sentence_ends:
+        # 가장 마지막 문장 종결 부호 다음 위치 반환
+        last_sentence_end = sentence_ends[-1]
+        return last_sentence_end + 2  # 종결 부호와 공백 건너뛰기
+    
+    # 문장 종결 부호가 없으면 단락 구분자 찾기
+    paragraph_breaks = [m.start() for m in re.finditer(r'\n\n', text)]
+    if paragraph_breaks:
+        # 가장 마지막 단락 구분자 다음 위치 반환
+        last_paragraph_break = paragraph_breaks[-1]
+        return last_paragraph_break + 2
+    
+    return 0  # 적절한 시작점을 찾지 못한 경우
