@@ -10,7 +10,7 @@ from functools import partial
 import random
 import threading
 import sys
-from typing import Dict, Any
+from typing import Dict, Any, Union # Added Union
 
 # 툴 설정 함수
 def set_tools():
@@ -73,6 +73,54 @@ def build_adaptive_rag() -> StateGraph:
     builder.add_edge("generate", "__end__")
 
     return builder.compile()
+
+# Global graph instance for API usage
+compiled_graph_instance: Union[StateGraph, None] = None
+
+def initialize_graph_for_api():
+    """Initializes the RAG graph for API usage if not already initialized."""
+    global compiled_graph_instance
+    if compiled_graph_instance is None:
+        print("Initializing RAG graph for API...")
+        compiled_graph_instance = build_adaptive_rag()
+        print("RAG graph initialized for API.")
+
+def get_chatbot_response(question: str, user_id: str) -> Dict[str, Any]:
+    """
+    Processes a question using the RAG graph and returns the chatbot's response.
+    Designed for API usage.
+    """
+    global compiled_graph_instance
+    if compiled_graph_instance is None:
+        # This should ideally be called by the FastAPI app startup,
+        # but initialize here if accessed directly before app startup.
+        initialize_graph_for_api()
+    
+    if compiled_graph_instance is None: # Still None after trying to initialize
+        return {"error": "Graph could not be initialized."}
+
+    inputs = {
+        "question": question,
+        "user_id": user_id
+    }
+    final_node_output_state = {}
+    
+    # The stream yields dictionaries where keys are node names and values are the state dicts.
+    # We want the state from the node that produces the 'generation'.
+    for output_chunk in compiled_graph_instance.stream(inputs):
+        for node_name, state_after_node in output_chunk.items():
+            # We are interested in the state that contains the 'generation'.
+            # This will typically be the state after 'generate' or 'llm_fallback' nodes.
+            # The last such state before the stream ends should be the overall final state.
+            final_node_output_state = state_after_node 
+
+    if 'generation' not in final_node_output_state:
+        # Check if it's an error or if the graph ended via a path that doesn't set 'generation'.
+        # For now, we assume 'generate' or 'llm_fallback' always sets 'generation'.
+        print(f"Warning: 'generation' key missing. Last state: {final_node_output_state}")
+        return {"error": "Generation not found in the final state.", "details": final_node_output_state}
+
+    return final_node_output_state
 
 def run_chatbot():
     """
