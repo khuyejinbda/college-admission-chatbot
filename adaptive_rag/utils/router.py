@@ -53,7 +53,7 @@ Use the following routing rules:
 
 - If the question is about how to use the chatbot or about issues related to the MyFolio service, use the **search_service** tool.
 
-- If the user's input includes keywords such as "세특", "수행평가", "주제", or phrases asking "what should I do", assume they are asking for a topic suggestion. In those cases, respond only with the link: https://myfolio.im/seteuk
+- If the user's input includes keywords such as "세특", "수행평가", "주제", or phrases asking "what should I do", assume they are asking for a topic suggestion. In those cases, respond with the link: "다음 링크에서 세특 주제를 추천받을 수 있습니다. https://myfolio.im/seteuk"
 
 Always choose the single most relevant tool that best matches the user's intent.
 """)
