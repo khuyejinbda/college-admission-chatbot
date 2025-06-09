@@ -85,7 +85,7 @@ def initialize_graph_for_api():
         compiled_graph_instance = build_adaptive_rag()
         print("RAG graph initialized for API.")
 
-def get_chatbot_response(question: str, user_id: str) -> Dict[str, Any]:
+def get_chatbot_response(question: str, user_id: str, category :str) -> Dict[str, Any]:
     """
     Processes a question using the RAG graph and returns the chatbot's response.
     Designed for API usage.
@@ -101,7 +101,8 @@ def get_chatbot_response(question: str, user_id: str) -> Dict[str, Any]:
 
     inputs = {
         "question": question,
-        "user_id": user_id
+        "user_id": user_id,
+        "category": category
     }
     final_node_output_state = {}
     
@@ -148,7 +149,8 @@ def run_chatbot():
 
             inputs = {
                 "question": question,
-                "user_id": user_id
+                "user_id": user_id,
+                "category": None  # 일단 로컬에서는 없음
             }
 
             for output in graph.stream(inputs):

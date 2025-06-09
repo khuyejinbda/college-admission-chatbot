@@ -14,6 +14,7 @@ app = FastAPI()
 class ChatRequest(BaseModel):
     question: str
     user_id: str | None = None
+    category: str | None = None  # Optional category field for future use
 
 @app.on_event("startup")
 async def startup_event():
@@ -24,7 +25,8 @@ async def startup_event():
 @app.post("/chat/")
 async def chat(request: ChatRequest):
     user_id = request.user_id if request.user_id else str(random.randint(1, 1_000_000))
-    response_data = get_chatbot_response(request.question, user_id)
+    category = request.category
+    response_data = get_chatbot_response(request.question, user_id, category)
     
     if "error" in response_data:
         return {"error": response_data["error"], "details": response_data.get("details", {})}
@@ -34,6 +36,7 @@ async def chat(request: ChatRequest):
     return {
         "user_id": user_id,
         "question": request.question,
+        "category": category,
         "answer": response_data.get("generation", "No answer generated."),
         "documents": response_data.get("documents", []) 
     }
