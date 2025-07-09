@@ -1,1 +1,1 @@
-# 세미나 18기 챗봇 줄임말 사전 업로드용 레포입니다.
+ai college admission chatbot
